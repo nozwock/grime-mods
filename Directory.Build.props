@@ -1,0 +1,70 @@
+<Project>
+  <!-- Define GamePath property in Local.props -->
+  <Import Project="Local.props" Condition="Exists('Local.props')" />
+  <PropertyGroup Condition="'$(GamePath)' != ''">
+    <DllDir>$(GamePath)/GRIME_Data/Managed/</DllDir>
+
+    <!-- After building, copy the plugin dll to this folder. Useful for hot-reloading:
+    https://github.com/BepInEx/BepInEx.Debug/blob/master/README.md#scriptengine
+
+    Set LoadOnStart and IncludeSubdirectories to true in ScriptEngine's config -->
+    <ScriptDir>$(GamePath)/BepInEx/scripts/</ScriptDir>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <LangVersion>latest</LangVersion>
+    <!-- <NoWarn>MSB3277</NoWarn> -->
+    <RestoreAdditionalProjectSources>
+      https://api.nuget.org/v3/index.json;
+      https://nuget.bepinex.dev/v3/index.json;
+      https://nuget.samboy.dev/v3/index.json
+    </RestoreAdditionalProjectSources>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BepInEx.Analyzers" Version="1.*" PrivateAssets="all" />
+    <PackageReference Include="BepInEx.Core" Version="5.*" PrivateAssets="all" />
+    <PackageReference Include="UnityEngine.Modules" Version="2022.3.62" IncludeAssets="compile" />
+
+    <!-- Requires SDK 10+ -->
+    <PackageReference Include="Hamunii.BepInEx.AutoPlugin" Version="2.1" PrivateAssets="all"/>
+
+    <PackageReference Include="Grime.GameLibs" Version="*-*" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(TargetFramework.TrimEnd(`0123456789`))' == 'net'">
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.2"
+      PrivateAssets="all" />
+  </ItemGroup>
+
+  <Target Name="SpicNSpan" AfterTargets="Clean"> <!-- common vars https://msdn.microsoft.com/en-us/library/c02as0cs.aspx?f=255&MSPPError=-2147217396 -->
+      <RemoveDir Directories="$(TargetDir)" /> <!-- bin -->
+      <RemoveDir Directories="$(ProjectDir)$(BaseIntermediateOutputPath)" /> <!-- obj -->
+  </Target>
+
+  <Target Name="CleanupPublishDir" AfterTargets="Publish">
+    <ItemGroup Condition="'$(Configuration)' == 'Debug'">
+      <FilesToDelete Include="$(PublishDir)*.deps.json;" />
+    </ItemGroup>
+    <ItemGroup Condition="'$(Configuration)' == 'Release'">
+      <FilesToDelete Include="$(PublishDir)*.pdb;$(PublishDir)*.deps.json;" />
+    </ItemGroup>
+    <Delete Files="@(FilesToDelete)">
+      <Output TaskParameter="DeletedFiles" ItemName="FilesDeleted" />
+    </Delete>
+  </Target>
+
+  <Target Name="CopyMod" AfterTargets="Publish" Condition="'$(ScriptDir)' != ''">
+    <!-- .NET 9+ Message will only show up with -v:d or -tl:off in terminals -->
+    <Message Text="Copying mod to &quot;$(ScriptDir)&quot;" Importance="High" />
+
+    <!-- https://github.com/dotnet/msbuild/issues/5881#issuecomment-1537643217 -->
+    <ItemGroup>
+      <FilesToCopy Include="$([MSBuild]::EnsureTrailingSlash('$(PublishDir)'))**\*.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(FilesToCopy)"
+      DestinationFolder="$([MSBuild]::EnsureTrailingSlash('$(ScriptDir)/$(AssemblyName)'))%(RecursiveDir)" />
+  </Target>
+</Project>
