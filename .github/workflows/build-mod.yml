@@ -1,0 +1,97 @@
+name: Build Mod
+
+on:
+  workflow_call:
+    inputs:
+      mod-name:
+        description: "The mod to build. Required if ref is not tag type."
+        default: "NONE"
+        type: string
+    outputs:
+      mod-name:
+        value: ${{ jobs.build-mod.outputs.mod-name }}
+      version:
+        value: ${{ jobs.build-mod.outputs.version }}
+      tag:
+        value: ${{ jobs.build-mod.outputs.tag }}
+
+jobs:
+  build-mod:
+    runs-on: ubuntu-latest
+
+    outputs:
+      mod-name: ${{ steps.meta.outputs.mod-name }}
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Prepare mod-name and version
+        id: meta
+        run: |
+          $mod_name = "${{ github.event.inputs.mod-name }}"
+
+          if ("${{ github.ref_type }}" -ne "tag") {
+            if (!(Test-Path $mod_name)) {
+              throw "Directory $mod_name not found"
+            }
+
+            Push-Location $mod_name
+            $csproj = Get-ChildItem -Path $path -Filter *.csproj | Select-Object -First 1
+            [xml]$xml = Get-Content $csproj.FullName
+            $version = $xml.Project.PropertyGroup.Version
+
+            $tag = "$mod_name/$version"
+          } else {
+            $tag = "${{ github.ref_name }}"
+
+            if ($tag -notmatch "^([^/]+)/(.+)$") {
+                throw "Tag must be <mod>/<version>"
+            }
+
+            $mod_name = $Matches[1]
+            $version = $Matches[2]
+
+            if (!(Test-Path $mod_name)) {
+                throw "Directory $mod_name not found"
+            }
+          }
+
+          "mod-name=$mod_name" >> $env:GITHUB_OUTPUT
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: "10"
+
+      - name: Add GitHub NuGet feed
+        run: |
+          dotnet nuget add source `
+            --name github https://nuget.pkg.github.com/nozwock/index.json `
+            --username ${{ github.repository_owner }} `
+            --password ${{ secrets.GITHUB_TOKEN }} `
+            --store-password-in-clear-text
+
+      - name: Build mod
+        run: |
+          $mod_name = "${{ steps.meta.outputs.mod-name }}"
+
+          Push-Location $mod_name
+          dotnet publish -c Release -o publish
+
+      - name: Zip build artifacts
+        shell: pwsh
+        run: |
+          $mod_name = "${{ steps.meta.outputs.mod-name }}"
+          Compress-Archive "$mod_name/publish/*" publish.zip
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: publish-${{ steps.meta.outputs.mod-name }}
+          path: publish.zip
